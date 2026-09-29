@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Justice League Chat</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9B%A1%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+</head>
+<body>
+
+  <!-- ============ LOGIN / GATE ============ -->
+  <section id="gate" class="gate">
+    <div class="gate-card">
+      <div class="gate-logo"><span class="shield">🛡️</span></div>
+      <h1 class="gate-title">JUSTICE LEAGUE</h1>
+      <p class="gate-sub">HALL OF JUSTICE · SECURE CHANNEL</p>
+
+      <!-- Step 1: password -->
+      <form id="password-form" class="gate-step">
+        <label for="password">Speak the password to enter the Watchtower</label>
+        <input id="password" type="password" placeholder="Password" autocomplete="off" required />
+        <button type="submit" class="btn-primary">ENTER THE WATCHTOWER</button>
+        <p id="password-error" class="gate-error" hidden></p>
+      </form>
+
+      <!-- Step 2: identity -->
+      <form id="identity-form" class="gate-step" hidden>
+        <label for="username">Choose your hero name</label>
+        <input id="username" type="text" placeholder="e.g. night_wing_99" maxlength="20" autocomplete="off" required />
+        <label>Pick your League alias</label>
+        <div id="hero-grid" class="hero-grid"></div>
+        <button type="submit" class="btn-primary">ASSEMBLE & CHAT</button>
+        <p id="identity-error" class="gate-error" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ============ CHAT ============ -->
+  <main id="chat" class="chat" hidden>
+    <aside class="sidebar">
+      <header class="sidebar-head">
+        <span class="shield small">🛡️</span>
+        <div class="brand">
+          <strong>JUSTICE LEAGUE</strong>
+          <small>CHAT</small>
+        </div>
+      </header>
+
+      <div class="sidebar-scroll">
+        <div class="sidebar-section">
+          <div class="section-title">
+            <span>GROUP CHANNELS</span>
+            <button id="new-room-btn" title="Create a channel">＋</button>
+          </div>
+          <ul id="room-list" class="room-list"></ul>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="section-title"><span>LEAGUE ONLINE</span><span id="online-count" class="online-count">0</span></div>
+          <ul id="member-list" class="member-list"></ul>
+        </div>
+      </div>
+
+      <footer class="sidebar-foot">
+        <div class="me" id="me-box">
+          <span class="avatar" id="me-avatar">🦸</span>
+          <div class="me-info">
+            <strong id="me-name"></strong>
+            <small id="me-hero"></small>
+          </div>
+        </div>
+        <button id="logout-btn" class="btn-ghost">Sign out</button>
+      </footer>
+    </aside>
+
+    <section class="panel">
+      <header class="panel-head">
+        <div class="panel-title">
+          <span id="panel-icon" class="panel-icon">#</span>
+          <h2 id="panel-name">Hall of Justice</h2>
+          <p id="panel-desc"></p>
+        </div>
+        <div id="unread-banner" class="unread-banner" hidden></div>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <div class="typing-row"><span id="typing"></span></div>
+
+      <form id="message-form" class="composer">
+        <input id="message-input" type="text" placeholder="Send a transmission…" maxlength="500" autocomplete="off" />
+        <button type="submit" class="btn-primary">⚡ Send</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
