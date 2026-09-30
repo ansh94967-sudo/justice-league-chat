@@ -694,6 +694,11 @@
     let unread = 0;
     for (const c of state.chats.values()) unread += c.unread || 0;
     document.title = (unread ? `(${unread}) ` : '') + 'Justice League Chat';
+    const menuBadge = document.getElementById('menu-badge');
+    if (menuBadge) {
+      menuBadge.hidden = !unread;
+      menuBadge.textContent = unread > 99 ? '99+' : String(unread);
+    }
   }
 
   function scrollToBottom(smooth) {

@@ -572,6 +572,27 @@ ul { list-style: none; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ---------------- responsive ---------------- */
+/* ---- the 3-dot channels button (mobile) ---- */
+.menu-btn {
+  position: relative;
+  width: 40px; height: 40px; border-radius: 11px;
+  background: var(--bg-hover); border: 1px solid var(--line);
+  color: var(--gold); flex-shrink: 0;
+  display: none; /* shown on mobile below */
+}
+.menu-btn svg { width: 20px; height: 20px; filter: drop-shadow(0 0 6px rgba(240, 180, 41, 0.5)); }
+.menu-btn:active { transform: scale(0.92); }
+.menu-badge {
+  position: absolute; top: -5px; right: -5px;
+  min-width: 18px; height: 18px; line-height: 18px; text-align: center;
+  padding: 0 4px; border-radius: 999px;
+  background: var(--red); color: #fff;
+  font-size: 10px; font-weight: 800;
+  box-shadow: 0 0 10px rgba(230, 41, 69, 0.55);
+  border: 2px solid var(--bg-panel-solid);
+}
+.menu-badge[hidden] { display: none; }
+
 .backdrop-dim {
   position: fixed; inset: 0; z-index: 29;
   background: rgba(3, 5, 12, 0.6); backdrop-filter: blur(2px);
@@ -580,6 +601,7 @@ ul { list-style: none; }
 
 @media (max-width: 860px) {
   .mobile-only { display: inline-flex; }
+  .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
   .chat { grid-template-columns: 1fr; }
   .sidebar {
     position: fixed; top: 0; bottom: 0; left: 0; width: min(84vw, 300px); z-index: 30;

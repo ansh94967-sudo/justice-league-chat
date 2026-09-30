@@ -151,7 +151,14 @@
 
     <section class="panel">
       <header class="panel-head">
-        <button id="menu-btn" class="icon-btn mobile-only" aria-label="Open menu">☰</button>
+        <button id="menu-btn" class="icon-btn mobile-only menu-btn" aria-label="Open channels and messages menu" title="Channels & messages">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="5" r="2.4" fill="currentColor" />
+            <circle cx="12" cy="12" r="2.4" fill="currentColor" />
+            <circle cx="12" cy="19" r="2.4" fill="currentColor" />
+          </svg>
+          <span id="menu-badge" class="menu-badge" hidden>0</span>
+        </button>
         <div class="panel-title">
           <span id="panel-icon" class="panel-icon">#</span>
           <div>
