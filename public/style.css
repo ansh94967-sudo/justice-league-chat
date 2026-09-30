@@ -45,6 +45,9 @@ body {
   color: var(--text);
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
+  /* dynamic viewport height: survives Android browser chrome show/hide */
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 button { font-family: inherit; cursor: pointer; }
@@ -143,9 +146,11 @@ ul { list-style: none; }
    GATE
    ============================================================ */
 .gate {
-  position: relative; z-index: 1; height: 100vh;
+  position: relative; z-index: 1;
+  height: 100vh; height: 100dvh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   padding: 20px; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .gate-card {
   width: min(540px, 100%);
@@ -264,7 +269,11 @@ ul { list-style: none; }
 /* ============================================================
    CHAT LAYOUT
    ============================================================ */
-.chat { position: relative; z-index: 1; display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+.chat {
+  position: relative; z-index: 1;
+  display: grid; grid-template-columns: 300px 1fr;
+  height: 100vh; height: 100dvh;
+}
 
 /* ---------------- sidebar ---------------- */
 .sidebar {
@@ -507,7 +516,7 @@ ul { list-style: none; }
 .composer {
   position: relative;
   display: flex; align-items: center; gap: 8px;
-  padding: 14px 20px 18px;
+  padding: 14px 20px calc(18px + env(safe-area-inset-bottom));
   background: rgba(12, 19, 39, 0.8); backdrop-filter: blur(10px);
 }
 .composer-icon {
@@ -599,25 +608,180 @@ ul { list-style: none; }
 }
 .backdrop-dim[hidden] { display: none; }
 
-@media (max-width: 860px) {
+/* ============================================================
+   RESPONSIVE — phones in portrait AND landscape
+   Two axes matter on Android: width (narrow) and height (short).
+   Many phones in landscape are >860px wide but only ~360px tall,
+   so the drawer layout is keyed on EITHER narrow width OR short height.
+   ============================================================ */
+
+/* ---------- drawer layout: narrow screens or short screens ---------- */
+@media (max-width: 860px), (max-height: 520px) {
   .mobile-only { display: inline-flex; }
   .menu-btn { display: inline-flex; align-items: center; justify-content: center; }
   .chat { grid-template-columns: 1fr; }
   .sidebar {
-    position: fixed; top: 0; bottom: 0; left: 0; width: min(84vw, 300px); z-index: 30;
-    transform: translateX(-102%); transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
+    position: fixed; top: 0; bottom: 0; left: 0;
+    width: min(86vw, 320px); z-index: 30;
+    padding-left: env(safe-area-inset-left);
+    transform: translateX(-102%);
+    transition: transform 0.24s cubic-bezier(0.2, 0.9, 0.3, 1);
     box-shadow: 24px 0 60px rgba(0, 0, 0, 0.5);
   }
   .sidebar.open { transform: translateX(0); }
   .side-item.active::before { left: -8px; }
-  .msg { max-width: 90%; }
-  .panel-head { padding: 10px 12px; }
+  .msg { max-width: 92%; }
   .panel-title p { display: none; }
+  /* notch / punch-hole safe areas on the right in landscape */
+  .panel-head, .messages, .typing-row, .composer {
+    padding-left: calc(12px + env(safe-area-inset-left));
+    padding-right: calc(12px + env(safe-area-inset-right));
+  }
+}
+
+/* ---------- portrait phones ---------- */
+@media (max-width: 860px) {
+  .panel-head { padding: 10px 12px; }
   .messages { padding: 14px 12px 8px; }
-  .composer { padding: 10px 12px 14px; }
+  .composer { padding: 10px 12px calc(14px + env(safe-area-inset-bottom)); }
   .typing-row { padding: 0 12px; }
   .gate-card { padding: 30px 22px 26px; }
   .hero-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* very narrow portrait (e.g. 320px) */
+@media (max-width: 380px) {
+  .gate-card { padding: 24px 16px 20px; }
+  .gate-title { font-size: 34px; gap: 8px; }
+  .gate-logo .shield-svg { width: 72px; height: 72px; }
+  .hero-grid { gap: 6px; }
+  .panel-title h2 { font-size: 19px; }
+  .meta-chip { display: none; }
+  .composer-icon { width: 30px; }
+}
+
+/* ============================================================
+   SHORT VIEWPORTS — landscape phones (and small tablets split-screen)
+   Everything gets compact so the whole screen fits: header, messages,
+   typing line and composer all stay visible without scrolling.
+   ============================================================ */
+@media (max-height: 520px) {
+  /* --- chat panel --- */
+  .panel-head { padding: 6px 12px; gap: 8px; }
+  .panel-title { gap: 8px; }
+  .panel-title h2 { font-size: 17px; }
+  .panel-icon { width: 32px; height: 32px; font-size: 15px; border-radius: 9px; }
+  .menu-btn { width: 34px; height: 34px; border-radius: 9px; }
+  .menu-btn svg { width: 17px; height: 17px; }
+  .meta-chip { display: none; }            /* channel count is optional */
+  .conn-pill { font-size: 9.5px; padding: 3px 8px; gap: 5px; }
+
+  .messages { padding: 10px 12px 6px; gap: 1px; }
+  .msg { margin-top: 5px; }
+  .msg.first { margin-top: 9px; }
+  .msg-body { padding: 7px 12px 6px; border-radius: 4px 13px 13px 13px; }
+  .msg.own .msg-body { border-radius: 13px 4px 13px 13px; }
+  .msg-text { font-size: 13.5px; line-height: 1.4; }
+  .msg-author { font-size: 11.5px; }
+  .avatar { width: 30px; height: 30px; font-size: 14px; }
+  .avatar.small { width: 26px; height: 26px; font-size: 12px; }
+  .day-divider { margin: 10px 0 6px; font-size: 9.5px; }
+  .sys-msg { font-size: 11px; padding: 3px 11px; margin: 4px 0; }
+  .reaction-chip { padding: 1px 7px; font-size: 12px; }
+  .msg-actions { top: -12px; padding: 2px 5px; }
+  .react-btn { width: 24px; height: 22px; font-size: 12.5px; }
+
+  .typing-row { height: 18px; }
+  .typing { font-size: 11px; }
+
+  .composer { padding: 7px 12px calc(9px + env(safe-area-inset-bottom)); gap: 6px; }
+  .composer input { padding: 9px 12px; font-size: 14px; border-radius: 11px; }
+  .composer-icon { width: 30px; height: 30px; font-size: 17px; }
+  .btn-send { width: 38px; height: 38px; border-radius: 11px; }
+  .btn-send svg { width: 17px; height: 17px; }
+  .char-count { display: none; }
+  .emoji-tray { bottom: 54px; left: 12px; grid-template-columns: repeat(8, 1fr); }
+  .emoji-tray button { width: 30px; height: 30px; font-size: 17px; }
+  .scroll-btn { width: 34px; height: 34px; right: 12px; bottom: 10px; }
+
+  /* --- sidebar drawer (full height is short, so tighten it) --- */
+  .sidebar-head { padding: 9px 14px; }
+  .brand strong { font-size: 16px; }
+  .sidebar-scroll { padding: 10px 10px; }
+  .sidebar-section { margin-bottom: 14px; }
+  .section-title { margin-bottom: 6px; font-size: 9.5px; }
+  .side-item { padding: 6px 9px; font-size: 13px; }
+  .sidebar-foot { padding: 8px 12px; }
+  .me-info strong { font-size: 12.5px; }
+
+  /* --- gate: must fit a ~300px tall viewport --- */
+  .gate {
+    justify-content: flex-start;          /* scroll from the top, never clip it */
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  }
+  .gate-card { padding: 14px 20px 16px; border-radius: 16px; }
+  .gate-logo { margin-bottom: 4px; }
+  .gate-logo .shield-svg { width: 50px; height: 50px; }
+  .gate-title { font-size: 28px; gap: 10px; letter-spacing: 0.1em; }
+  .gate-sub { margin: 5px 0 12px; font-size: 9px; letter-spacing: 0.28em; }
+  .gate-step { gap: 8px; }
+  .gate-step label { font-size: 12px; }
+  .field input { padding: 10px 42px 10px 40px; font-size: 14px; }
+  .field-icon { width: 16px; height: 16px; left: 12px; }
+  .btn-hero { padding: 10px 14px; font-size: 12.5px; border-radius: 10px; }
+  .gate-hint { font-size: 11px; }
+  .gate-footer { margin-top: 10px; font-size: 10px; }
+  .hero-grid {
+    grid-template-columns: repeat(6, 1fr);   /* wide, short tiles fit landscape */
+    max-height: 128px; gap: 6px;
+  }
+  .hero-option { padding: 6px 2px 5px; font-size: 8px; border-radius: 9px; gap: 3px; }
+  .hero-option .hero-emoji { font-size: 18px; }
+  .gate-error { font-size: 12px; padding: 6px 10px; }
+}
+
+/* ---------- landscape gate: brand on the left, form on the right ---------- */
+@media (max-height: 520px) and (orientation: landscape) {
+  .gate-card {
+    width: min(780px, 100%);
+    display: grid;
+    grid-template-columns: minmax(140px, 0.85fr) 1.45fr;
+    grid-template-rows: auto auto auto 1fr;
+    column-gap: 26px;
+    row-gap: 0;
+    text-align: left;
+    padding: 16px 22px 18px;
+  }
+  .gate-logo { grid-column: 1; grid-row: 1; justify-content: flex-start; margin-bottom: 2px; }
+  .gate-logo .shield-svg { width: 62px; height: 62px; }
+  .gate-title {
+    grid-column: 1; grid-row: 2;
+    justify-content: flex-start; flex-direction: column; gap: 0;
+    font-size: 30px; line-height: 0.98;
+  }
+  .gate-sub {
+    grid-column: 1; grid-row: 3;
+    margin: 8px 0 0; text-align: left; letter-spacing: 0.22em;
+  }
+  .gate-step { grid-column: 2; grid-row: 1 / span 4; }
+  .hero-grid { grid-template-columns: repeat(6, 1fr); max-height: 150px; }
+  .gate-footer { margin-top: 8px; }
+}
+
+/* ---------- extra-compact: very short landscape (≤400px tall) ---------- */
+@media (max-height: 400px) {
+  .panel-title h2 { font-size: 15px; }
+  .messages { padding: 8px 10px 4px; }
+  .msg-text { font-size: 13px; }
+  .composer input { padding: 8px 11px; font-size: 13.5px; }
+  .btn-send { width: 34px; height: 34px; }
+  .gate-logo .shield-svg { width: 40px; height: 40px; }
+  .gate-title { font-size: 23px; }
+  .gate-sub { margin: 3px 0 9px; }
+  .hero-grid { max-height: 104px; }
+  .hero-option { padding: 4px 2px; }
+  .hero-option .hero-emoji { font-size: 16px; }
+  .gate-footer { display: none; }          /* keep the form fully visible */
 }
 
 /* ---------------- reduced motion ---------------- */

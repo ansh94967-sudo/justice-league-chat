@@ -14,6 +14,9 @@
 <img src="docs/screenshot-identity.png" width="380" alt="Picking your hero identity" />
 <img src="docs/screenshot-dm.png" width="540" alt="A direct message conversation" />
 
+<img src="docs/screenshot-landscape-gate.png" width="540" alt="Phone in landscape — the two-column login" />
+<img src="docs/screenshot-landscape-chat.png" width="540" alt="Phone in landscape — the chat layout" />
+
 *A fan-made project — not affiliated with DC Comics.*
 
 </div>
@@ -42,7 +45,7 @@
 - **Reconnect-safe sessions** — session tokens rotate on every connection, so a flaky Wi-Fi never logs you out
 - **Rate limiting** — a token bucket keeps speedsters from flooding the Hall
 - **XSS-safe rendering** — all message text is rendered through text nodes; nothing is ever `innerHTML`-ed from user input
-- **Responsive** — full desktop layout plus a mobile drawer UI, with `prefers-reduced-motion` support
+- **Fits every phone** — dedicated layouts for portrait *and* landscape (the drawer, compact header and two-column login respond to viewport **height** as well as width), safe-area insets for notches, and dynamic viewport height so Android browser chrome never clips the composer
 - **Connection status** — a live "Link stable / Reconnecting…" pill
 
 ## 🚀 Quick start
@@ -84,7 +87,9 @@ $env:SITE_PASSWORD="my-secret"; npm start
 ```bash
 npm test        # 23 integration tests: gate, rooms, DMs, reactions, deletion,
                 # rate limiting, session renewal, presence, system messages
-node visual-qa.js   # optional: headless-browser visual QA + screenshots (needs puppeteer-core)
+node visual-qa.js      # optional: headless-browser visual QA + screenshots (needs puppeteer-core)
+node responsive-qa.js  # optional: checks nothing is clipped on 6 phone sizes
+                       # (portrait + landscape) and writes screenshots to docs/responsive/
 ```
 
 ## ☁️ Deployment
