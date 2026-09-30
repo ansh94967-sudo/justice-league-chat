@@ -1,12 +1,21 @@
 {
   "name": "justice-league-chat",
-  "version": "1.0.0",
-  "description": "A Justice League themed web chat app with password gate, group chat rooms and direct messages.",
+  "version": "2.0.0",
+  "description": "🛡️ A Justice League themed real-time web chat — password gate, hero identities, group channels, direct messages, reactions. Node.js + Express + Socket.IO.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node test-integration.js"
   },
+  "keywords": [
+    "chat",
+    "socket-io",
+    "express",
+    "realtime",
+    "justice-league",
+    "websockets"
+  ],
   "engines": {
     "node": ">=18"
   },
