@@ -37,6 +37,11 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The [hidden] attribute must always win over component display rules
+   (e.g. .gate{display:flex}, .chat{display:grid}) — author rules otherwise
+   override the browser's built-in [hidden]{display:none}. */
+[hidden] { display: none !important; }
+
 html, body { height: 100%; }
 
 body {
@@ -651,10 +656,13 @@ ul { list-style: none; }
 
 /* very narrow portrait (e.g. 320px) */
 @media (max-width: 380px) {
-  .gate-card { padding: 24px 16px 20px; }
+  .gate { padding: 12px 10px; }
+  .gate-card { padding: 20px 14px 16px; }
+  .gate-step { gap: 10px; }
+  .gate-sub { margin: 8px 0 18px; }
   .gate-title { font-size: 34px; gap: 8px; }
   .gate-logo .shield-svg { width: 72px; height: 72px; }
-  .hero-grid { gap: 6px; }
+  .hero-grid { gap: 6px; max-height: 210px; }
   .panel-title h2 { font-size: 19px; }
   .meta-chip { display: none; }
   .composer-icon { width: 30px; }

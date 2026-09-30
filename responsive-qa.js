@@ -16,7 +16,7 @@ const DEVICES = [
   { name: 'landscape-915x412', w: 915, h: 412 },
   { name: 'landscape-800x360', w: 800, h: 360 },
   { name: 'landscape-640x360', w: 640, h: 360 }
-];
+].filter(d => !process.env.QA_ONLY || d.name.includes(process.env.QA_ONLY));
 
 const CHAT_SELECTORS = [
   '.panel-head', '.menu-btn', '#panel-name', '.conn-pill',
@@ -65,6 +65,15 @@ function boxReport() {
     await sleep(500);
     await page.screenshot({ path: path.join(OUT, `${dev.name}-gate.png`) });
     let gate = await page.evaluate(boxReport);
+    // visibility sanity on the gate step
+    const gateState = await page.evaluate(() => {
+      const shown = sel => { const el = document.querySelector(sel); return !!el && getComputedStyle(el).display !== 'none'; };
+      return {
+        gateShown: shown('#gate'), chatShown: shown('#chat'),
+        docScroll: document.documentElement.scrollHeight, vh: window.innerHeight,
+        scrollBtnShown: shown('#scroll-btn')
+      };
+    });
 
     // ---- identity step ----
     await page.type('#password', 'watchtower');
@@ -102,6 +111,14 @@ function boxReport() {
     await page.evaluateOnNewDocument(sels => { window.__probe = sels; }, CHAT_SELECTORS);
     await page.evaluate(sels => { window.__probe = sels; }, CHAT_SELECTORS);
     let chat = await page.evaluate(boxReport);
+    const chatState = await page.evaluate(() => {
+      const shown = sel => { const el = document.querySelector(sel); return !!el && getComputedStyle(el).display !== 'none'; };
+      return {
+        gateShown: shown('#gate'), chatShown: shown('#chat'),
+        docScroll: document.documentElement.scrollHeight, vh: window.innerHeight,
+        scrollBtnShown: shown('#scroll-btn')
+      };
+    });
 
     // ---- drawer ----
     await page.click('#menu-btn');
@@ -115,7 +132,7 @@ function boxReport() {
       return { vh, vw, sidebar: { left: Math.round(r.left), right: Math.round(r.right), bottom: Math.round(r.bottom) }, sections: items };
     });
 
-    results.push({ device: dev.name, gate, ident, chat, drawer });
+    results.push({ device: dev.name, gate, gateState, ident, chat, chatState, drawer });
     await page.close();
   }
 
@@ -134,10 +151,22 @@ function boxReport() {
     overflow(r.gate.boxes, 'gate');
     overflow(r.ident.boxes, 'identity');
     overflow(r.chat.boxes, 'chat');
-    console.log(`  gate: vh=${r.gate.vh} vw=${r.gate.vw}`);
+
+    // only one screen may be visible at a time, and the page must not scroll
+    const exclusive = (s, label) => {
+      const ok = s.gateShown !== s.chatShown;
+      if (!ok) { problems++; console.log(`  SCREEN BLEED [${label}] gateShown=${s.gateShown} chatShown=${s.chatShown}`); }
+      if (s.docScroll > s.vh + 2) { problems++; console.log(`  PAGE SCROLLS [${label}] doc=${s.docScroll} viewport=${s.vh}`); }
+    };
+    exclusive(r.gateState, 'gate');
+    exclusive(r.chatState, 'chat');
+    if (r.gateState.scrollBtnShown) { problems++; console.log('  STRAY scroll-btn visible on the gate'); }
+    if (r.chatState.scrollBtnShown) { problems++; console.log('  STRAY scroll-btn visible while at the bottom'); }
+
+    console.log(`  gate: vh=${r.gate.vh} vw=${r.gate.vw} | gateShown=${r.gateState.gateShown} chatShown=${r.gateState.chatShown} docScroll=${r.gateState.docScroll}`);
     console.log(`  chat: messages h=${(r.chat.boxes.find(b => b.sel === '.messages') || {}).h}px, composer bottom=${(r.chat.boxes.find(b => b.sel === '.composer') || {}).bottom} / vh=${r.chat.vh}`);
     console.log(`  drawer: width=${r.drawer.sidebar.right - r.drawer.sidebar.left}px, sections=[${r.drawer.sections.join(' | ')}]`);
   }
-  console.log('\n' + (problems === 0 ? 'NO CLIPPING DETECTED — all elements fit' : problems + ' CLIPPING ISSUE(S)'));
+  console.log('\n' + (problems === 0 ? 'NO CLIPPING OR LAYOUT BLEED — all good' : problems + ' PROBLEM(S) FOUND'));
   process.exitCode = problems === 0 ? 0 : 1;
 })().catch(e => { console.error('QA ERROR:', e); process.exit(1); });

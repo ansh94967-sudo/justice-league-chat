@@ -23,7 +23,8 @@ const server = http.createServer(app);
 const io = new Server(server, { maxHttpBufferSize: 1e6, pingInterval: 20000, pingTimeout: 25000 });
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
+// no long cache: browsers revalidate with ETag, so deploys show up immediately
+app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: 0 }));
 
 /* ------------------------------------------------------------------ */
 /* Heroes                                                              */
