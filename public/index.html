@@ -64,12 +64,17 @@
           </button>
         </div>
         <p id="password-error" class="gate-error" role="alert" hidden></p>
-        <button type="submit" class="btn-hero">Enter the Watchtower</button>
+        <button type="submit" class="btn-hero" id="enter-btn">Enter the Watchtower</button>
+        <p id="returning" class="gate-returning" hidden>
+          <span id="returning-text"></span>
+          <button type="button" id="use-different" class="link-btn">Use a different hero</button>
+        </p>
         <p class="gate-hint">Not a League member yet? Any hero may enter — if they know the password.</p>
       </form>
 
       <!-- Step 2: the identity -->
       <form id="identity-form" class="gate-step" autocomplete="off" hidden>
+        <p id="welcome-back" class="gate-welcome" hidden></p>
         <label for="username">Choose your hero name</label>
         <div class="field">
           <svg viewBox="0 0 24 24" class="field-icon"><path fill="currentColor" d="M12 4a4 4 0 1 1-4 4 4 4 0 0 1 4-4Zm0 10c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z"/></svg>
@@ -180,7 +185,7 @@
             <path d="M57 22 L34 55 H48 L42 80 L68 45 H53 Z" fill="rgba(240,180,41,.35)" />
           </svg>
           <h3>No transmissions yet</h3>
-          <p>The Hall awaits your first message, hero.</p>
+          <p id="empty-text">The Hall awaits your first message, hero.</p>
         </div>
         <button id="scroll-btn" class="scroll-btn" hidden aria-label="Scroll to latest messages">
           <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 16 6 10l1.4-1.4L12 13.2l4.6-4.6L18 10Z"/></svg>

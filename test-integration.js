@@ -29,6 +29,19 @@ function post(path, body) {
   });
 }
 
+function get(path) {
+  return new Promise((resolve, reject) => {
+    http.get(BASE + path, res => {
+      let buf = '';
+      res.on('data', c => (buf += c));
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, json: JSON.parse(buf) }); }
+        catch (e) { resolve({ status: res.statusCode, json: {} }); }
+      });
+    }).on('error', reject);
+  });
+}
+
 async function login(username, hero) {
   const r = await post('/api/login', { password: 'watchtower', username, hero });
   return { token: r.json.token, status: r.status };
@@ -154,9 +167,41 @@ async function main() {
   check('leave announcement emitted', leave.message.system === true && leave.message.text.includes('left'));
   await sleep(300);
 
-  /* ---- duplicate username + session reuse ---- */
-  const dup = await post('/api/login', { password: 'watchtower', username: 'alice_test', hero: 'batman' });
-  check('duplicate online username rejected', dup.status === 409);
+  /* ---- the same hero signing in again takes over (phone reload case) ---- */
+  const t1 = await login('reload_test', 'batman');
+  const first = io(BASE, { auth: { token: t1.token } });
+  await new Promise(r => first.on('connect', r));
+  const superseded = new Promise(r => first.once('session:superseded', r));
+
+  const t2 = await login('reload_test', 'batman');
+  check('signing in again with the same hero is allowed', t2.status === 200);
+  const second = io(BASE, { auth: { token: t2.token } });
+  await new Promise(r => second.on('connect', r));
+
+  const kicked = await Promise.race([superseded, sleep(2000).then(() => null)]);
+  check('the previous connection is told it was superseded', !!kicked);
+  await sleep(300);
+  check('the previous connection is disconnected', first.disconnected === true);
+  check('the new connection stays connected', second.connected === true);
+  second.close();
+
+  /* ---- history window is advertised to clients ---- */
+  const cfg = await post('/api/verify-password', { password: 'watchtower' });
+  check('password still verifies', cfg.status === 200);
+
+  const conf = await get('/api/config');
+  check('config reports the 3-day history window', conf.json.historyDays === 3);
+
+  const health = await get('/healthz');
+  check('healthz reports stored messages', health.json.ok === true && health.json.messages > 0);
+
+  /* ---- history is served to a freshly joined client (persistence path) ---- */
+  const histProbe = io(BASE, { auth: { token: (await login('hist_test', 'aquaman')).token } });
+  const hist = await new Promise(r => { histProbe.on('room:history', r); histProbe.emit('room:join', { roomId: 'hall-of-justice' }); });
+  check('history payload carries the retention window', hist.historyDays === 3);
+  check('earlier messages are still in history', hist.messages.some(m => m.text && m.text.includes('entered the Hall of Justice')));
+  check('deleted messages keep their tombstone in history', hist.messages.some(m => m.deleted === true));
+  histProbe.close();
 
   a.close(); b.close();
   await sleep(300);

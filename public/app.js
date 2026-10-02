@@ -30,7 +30,8 @@
     roomPresence: new Map(),
     typing: new Map(),    // key -> Map(username -> timeout)
     muted: localStorage.getItem('jl-muted') === '1',
-    sitePassword: ''
+    sitePassword: '',
+    historyDays: 3
   };
   const chatKey = (kind, id) => kind + ':' + id;
 
@@ -47,6 +48,10 @@
   const heroGrid = $('#hero-grid');
   const assembleBtn = $('#assemble-btn');
   const togglePasswordBtn = $('#toggle-password');
+  const enterBtn = $('#enter-btn');
+  const returning = $('#returning');
+  const returningText = $('#returning-text');
+  const welcomeBack = $('#welcome-back');
   const roomListEl = $('#room-list');
   const dmListEl = $('#dm-list');
   const dmEmptyEl = $('#dm-empty');
@@ -55,6 +60,7 @@
   const onlineCountEl = $('#online-count');
   const messagesEl = $('#messages');
   const emptyStateEl = $('#empty-state');
+  const emptyTextEl = $('#empty-text');
   const messageForm = $('#message-form');
   const messageInput = $('#message-input');
   const charCountEl = $('#char-count');
@@ -149,6 +155,61 @@
     passwordInput.focus();
   });
 
+  /* ---- remembered identity: the hero name survives, the password never does ---- */
+  function loadIdentity() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('jl-identity') || 'null');
+      if (raw && typeof raw.username === 'string' && typeof raw.hero === 'string') return raw;
+    } catch (_) { /* ignore corrupt value */ }
+    return null;
+  }
+  function saveIdentity(identity) {
+    try { localStorage.setItem('jl-identity', JSON.stringify(identity)); } catch (_) { /* ignore */ }
+  }
+  function forgetIdentity() {
+    try { localStorage.removeItem('jl-identity'); } catch (_) { /* ignore */ }
+  }
+
+  let chosenHero = null;
+  let forceIdentityStep = false; // set by "use a different hero"
+
+  function selectHero(heroId) {
+    chosenHero = heroId;
+    assembleBtn.disabled = false;
+    identityError.hidden = true;
+    heroGrid.querySelectorAll('.hero-option').forEach(x => {
+      const on = x.dataset.hero === heroId;
+      x.classList.toggle('selected', on);
+      x.setAttribute('aria-checked', on);
+    });
+  }
+
+  function showIdentityStep() {
+    passwordForm.hidden = true;
+    identityForm.hidden = false;
+    identityForm.classList.add('is-active');
+    const saved = loadIdentity();
+    if (saved && !forceIdentityStep) {
+      usernameInput.value = saved.username;
+      selectHero(saved.hero);
+      welcomeBack.textContent = `Welcome back, ${saved.username} — confirm your alias and enter.`;
+      welcomeBack.hidden = false;
+    }
+    (chosenHero ? assembleBtn : usernameInput).focus();
+  }
+
+  /* sign in once the password has been verified */
+  async function signIn(username, hero) {
+    const { ok, data } = await api('/api/login', {
+      password: state.sitePassword, username, hero
+    });
+    if (!ok) return { ok: false, error: data.error };
+    localStorage.setItem('jl-token', data.token);
+    saveIdentity({ username: data.username, hero: data.hero });
+    enterChat({ username: data.username, hero: data.hero });
+    return { ok: true };
+  }
+
   passwordForm.addEventListener('submit', async e => {
     e.preventDefault();
     passwordError.hidden = true;
@@ -161,17 +222,35 @@
       return;
     }
     state.sitePassword = passwordInput.value;
-    passwordForm.hidden = true;
-    identityForm.hidden = false;
-    identityForm.classList.add('is-active');
-    usernameInput.focus();
+
+    // Password every visit; if this hero is remembered, go straight in.
+    const saved = loadIdentity();
+    if (saved && !forceIdentityStep) {
+      const label = enterBtn.textContent;
+      enterBtn.disabled = true;
+      enterBtn.textContent = `Entering as ${saved.username}…`;
+      const res = await signIn(saved.username, saved.hero);
+      enterBtn.disabled = false;
+      enterBtn.textContent = label;
+      if (res.ok) return;
+      passwordError.textContent = res.error || 'Please pick your hero again.';
+      passwordError.hidden = false;
+    }
+    showIdentityStep();
+  });
+
+  $('#use-different').addEventListener('click', () => {
+    forceIdentityStep = true;
+    forgetIdentity();
+    returning.hidden = true;
+    returningText.textContent = '';
+    enterBtn.textContent = 'Enter the Watchtower';
+    passwordInput.focus();
   });
 
   usernameInput.addEventListener('input', () => {
     usernameError.hidden = true;
   });
-
-  let chosenHero = null;
 
   async function loadHeroes() {
     const res = await fetch('/api/heroes');
@@ -186,16 +265,7 @@
       b.style.animationDelay = (i * 28) + 'ms';
       b.appendChild(el('span', 'hero-emoji', h.emoji));
       b.appendChild(el('span', null, h.name));
-      b.addEventListener('click', () => {
-        chosenHero = h.id;
-        assembleBtn.disabled = false;
-        identityError.hidden = true;
-        heroGrid.querySelectorAll('.hero-option').forEach(x => {
-          const on = x.dataset.hero === h.id;
-          x.classList.toggle('selected', on);
-          x.setAttribute('aria-checked', on);
-        });
-      });
+      b.addEventListener('click', () => selectHero(h.id));
       heroGrid.appendChild(b);
     });
   }
@@ -216,17 +286,12 @@
       return;
     }
     assembleBtn.disabled = true;
-    const { ok, data } = await api('/api/login', {
-      password: state.sitePassword, username: name, hero: chosenHero
-    });
-    if (!ok) {
+    const res = await signIn(name, chosenHero);
+    if (!res.ok) {
       assembleBtn.disabled = false;
-      identityError.textContent = data.error || 'Could not assemble.';
+      identityError.textContent = res.error || 'Could not assemble.';
       identityError.hidden = false;
-      return;
     }
-    localStorage.setItem('jl-token', data.token);
-    enterChat({ username: data.username, hero: data.hero });
   });
 
   /* ============================================================
@@ -262,6 +327,12 @@
 
     socket.on('connect', () => setConn(true));
     socket.on('disconnect', () => setConn(false));
+    /* someone signed in with this hero name elsewhere (or a phone reload won) */
+    socket.on('session:superseded', ({ message } = {}) => {
+      localStorage.removeItem('jl-token');
+      toast(message || 'This hero signed in from another device.');
+      setTimeout(() => location.reload(), 1600);
+    });
     socket.on('connect_error', err => {
       if (err && err.message === 'unauthorized') {
         localStorage.removeItem('jl-token');
@@ -824,16 +895,28 @@
   /* ============================================================
      BOOT
      ============================================================ */
+  async function loadConfig() {
+    try {
+      const res = await fetch('/api/config');
+      const cfg = await res.json();
+      state.historyDays = cfg.historyDays || 3;
+      if (emptyTextEl) {
+        emptyTextEl.textContent =
+          `History is kept for the last ${state.historyDays} days — say something, hero.`;
+      }
+    } catch (_) { /* keep the defaults */ }
+  }
+
   (async function boot() {
     await loadHeroes();
-    const token = localStorage.getItem('jl-token');
-    if (token) {
-      const { ok, data } = await api('/api/session', { token });
-      if (ok) { enterChat({ username: data.username, hero: data.hero }); return; }
-      localStorage.removeItem('jl-token');
-      if (data && data.error && data.error !== 'session-expired') {
-        toast(data.error);
-      }
+    await loadConfig();
+
+    // The password is asked on every visit — only the hero name is remembered.
+    const saved = loadIdentity();
+    if (saved) {
+      returningText.textContent = `Remembered: ${saved.username}`;
+      returning.hidden = false;
+      enterBtn.textContent = `Enter as ${saved.username}`;
     }
     passwordInput.focus();
   })();

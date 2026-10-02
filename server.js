@@ -1,19 +1,21 @@
 /**
  * Justice League Chat — server
  * Express + Socket.IO real-time chat featuring:
- *  - Site password gate + hero-name identity creation
- *  - Group channels (themed defaults + user-created)
- *  - Direct (1:1) messages
+ *  - Site password gate + hero-name identity (password every visit, hero name
+ *    remembered by the client)
+ *  - Group channels (themed defaults + user-created) and direct messages
  *  - Emoji reactions, own-message deletion
  *  - Per-channel presence, typing indicators, join/leave system messages
  *  - Spam-proof token-bucket rate limiting
- *  - Reconnect-safe sessions (token renewed on every connection)
+ *  - Reconnect-safe sessions (token rotated on every connection)
+ *  - Persistent history with a 3-day retention window (see store.js)
  */
 const express = require('express');
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
 const { Server } = require('socket.io');
+const store = require('./store');
 
 const SITE_PASSWORD = process.env.SITE_PASSWORD || 'watchtower';
 const PORT = process.env.PORT || 3000;
@@ -33,7 +35,7 @@ const HEROES = [
   { id: 'superman',          name: 'Superman',          emoji: '🦸',   color: '#d6273e' },
   { id: 'supergirl',         name: 'Supergirl',         emoji: '🦸‍♀️', color: '#e8598f' },
   { id: 'batman',            name: 'Batman',            emoji: '🦇',   color: '#7c8db5' },
-  { id: 'nightwing',         name: 'Nightwing',        emoji: '🪶',   color: '#4f7cd6' },
+  { id: 'nightwing',         name: 'Nightwing',         emoji: '🪶',   color: '#4f7cd6' },
   { id: 'wonder-woman',      name: 'Wonder Woman',      emoji: '⚔️',   color: '#e3b341' },
   { id: 'flash',             name: 'The Flash',         emoji: '⚡',   color: '#f0772c' },
   { id: 'aquaman',           name: 'Aquaman',           emoji: '🔱',   color: '#2fa3c4' },
@@ -51,13 +53,13 @@ const HERO_IDS = new Set(HEROES.map(h => h.id));
 
 const REACTIONS = ['⚡', '💥', '🛡️', '❤️', '😂', '👍'];
 const MAX_TEXT = 500;
-const HISTORY_LIMIT = 300;
 
 /* ------------------------------------------------------------------ */
-/* State (in-memory)                                                   */
+/* State                                                               */
 /* ------------------------------------------------------------------ */
 const sessions = new Map();      // token -> { username, hero }
 const online = new Map();        // username -> { hero, sockets: Set<socketId> }
+const roomMembers = new Map();   // roomId -> Set<username>
 
 const DEFAULT_ROOMS = [
   { id: 'hall-of-justice', name: 'Hall of Justice',  desc: 'General assembly for the entire League' },
@@ -66,11 +68,10 @@ const DEFAULT_ROOMS = [
   { id: 'gotham',          name: 'Gotham',          desc: 'After-dark patrol channel' },
   { id: 'atlantis',        name: 'Atlantis',         desc: 'Deep-sea comms with the Throne' }
 ];
-const rooms = new Map(DEFAULT_ROOMS.map(r => [r.id, { ...r }]));
 
-const roomHistory = new Map();   // roomId -> [msg]
-const dmHistory = new Map();     // pairKey -> [msg]
-const roomMembers = new Map();   // roomId -> Set<username>
+// history + channels live in the persistent store
+store.init();
+for (const room of DEFAULT_ROOMS) store.addRoom(room);
 
 const pairKey = (a, b) => [a, b].sort().join('\u0000');
 const cleanText = t => String(t || '').trim().slice(0, MAX_TEXT);
@@ -89,12 +90,6 @@ function allowMessage(username) {
   return true;
 }
 
-function pushHistory(map, key, msg) {
-  if (!map.has(key)) map.set(key, []);
-  const list = map.get(key);
-  list.push(msg);
-  if (list.length > HISTORY_LIMIT) list.splice(0, list.length - HISTORY_LIMIT);
-}
 function systemMessage(text) {
   return { id: uid(), system: true, text, ts: Date.now() };
 }
@@ -104,8 +99,11 @@ function systemMessage(text) {
 /* ------------------------------------------------------------------ */
 app.get('/api/heroes', (_req, res) => res.json({ heroes: HEROES }));
 
-app.get('/api/config', (_req, res) =>
-  res.json({ siteName: 'Justice League Chat', hasCustomPassword: process.env.SITE_PASSWORD !== undefined }));
+app.get('/api/config', (_req, res) => res.json({
+  siteName: 'Justice League Chat',
+  historyDays: store.HISTORY_DAYS,
+  hasCustomPassword: process.env.SITE_PASSWORD !== undefined
+}));
 
 app.post('/api/verify-password', (req, res) => {
   const { password } = req.body || {};
@@ -127,9 +125,20 @@ app.post('/api/login', (req, res) => {
   if (!HERO_IDS.has(hero)) {
     return res.status(400).json({ ok: false, error: 'Unknown hero. Pick from the roster.' });
   }
-  if (online.has(name)) {
-    return res.status(409).json({ ok: false, error: 'That hero name is already active in the Hall. Choose another.' });
+
+  // The same hero signing in again (e.g. a phone reload) takes over its
+  // previous connection instead of being turned away.
+  const existing = online.get(name);
+  if (existing) {
+    for (const sid of [...existing.sockets]) {
+      const sock = io.sockets.sockets.get(sid);
+      if (sock) {
+        sock.emit('session:superseded', { message: 'This hero signed in from another device.' });
+        sock.disconnect(true);
+      }
+    }
   }
+
   const token = uid();
   sessions.set(token, { username: name, hero });
   res.json({ ok: true, token, username: name, hero });
@@ -139,13 +148,15 @@ app.post('/api/session', (req, res) => {
   const { token } = req.body || {};
   const s = token && sessions.get(token);
   if (!s) return res.status(401).json({ ok: false, error: 'session-expired' });
-  if (online.has(s.username)) {
-    return res.status(409).json({ ok: false, error: 'Your hero is already connected in another tab or window.' });
-  }
   res.json({ ok: true, username: s.username, hero: s.hero });
 });
 
-app.get('/healthz', (_req, res) => res.json({ ok: true, heroes: online.size }));
+app.get('/healthz', (_req, res) => res.json({
+  ok: true,
+  heroes: online.size,
+  messages: store.total(),
+  historyDays: store.HISTORY_DAYS
+}));
 
 /* ------------------------------------------------------------------ */
 /* Socket.IO                                                           */
@@ -171,9 +182,6 @@ function presenceList() {
 function broadcastPresence() {
   io.emit('presence', { users: presenceList() });
 }
-function roomList() {
-  return [...rooms.values()].map(r => ({ id: r.id, name: r.name, desc: r.desc }));
-}
 function membersOf(roomId) {
   return [...(roomMembers.get(roomId) || [])].map(username => {
     const u = online.get(username);
@@ -191,16 +199,15 @@ io.on('connection', socket => {
   if (!online.has(username)) {
     online.set(username, { username, hero, sockets: new Set() });
     broadcastPresence();
-    // a hero entering/leaving the Watchtower is announced in the Hall
     const sys = systemMessage(`⚡ ${username} has entered the Hall of Justice`);
-    pushHistory(roomHistory, 'hall-of-justice', sys);
+    store.pushRoom('hall-of-justice', sys);
     io.to('room:hall-of-justice').emit('room:message', { roomId: 'hall-of-justice', message: sys });
   } else {
     broadcastPresence();
   }
   online.get(username).sockets.add(socket.id);
   socket.emit('session:renewed', { token: socket.data.renewedToken });
-  io.emit('rooms', { rooms: roomList() });
+  io.emit('rooms', { rooms: store.rooms() });
 
   socket.on('disconnect', () => {
     const u = online.get(username);
@@ -214,19 +221,23 @@ io.on('connection', socket => {
       }
       broadcastPresence();
       const sys = systemMessage(`🌑 ${username} has left the Hall of Justice`);
-      pushHistory(roomHistory, 'hall-of-justice', sys);
+      store.pushRoom('hall-of-justice', sys);
       io.to('room:hall-of-justice').emit('room:message', { roomId: 'hall-of-justice', message: sys });
     }
   });
 
   /* ------------------ group channels ------------------ */
   socket.on('room:join', ({ roomId } = {}) => {
-    const room = rooms.get(roomId);
+    const room = store.getRoom(roomId);
     if (!room) return socket.emit('error:msg', { text: 'That channel does not exist.' });
     socket.join('room:' + roomId);
     if (!roomMembers.has(roomId)) roomMembers.set(roomId, new Set());
     roomMembers.get(roomId).add(username);
-    socket.emit('room:history', { roomId, messages: roomHistory.get(roomId) || [] });
+    socket.emit('room:history', {
+      roomId,
+      messages: store.roomMessages(roomId),
+      historyDays: store.HISTORY_DAYS
+    });
     broadcastRoomPresence(roomId);
   });
 
@@ -237,14 +248,14 @@ io.on('connection', socket => {
   });
 
   socket.on('room:message', ({ roomId, text } = {}) => {
-    const room = rooms.get(roomId);
+    const room = store.getRoom(roomId);
     const body = cleanText(text);
     if (!room || !body) return;
     if (!allowMessage(username)) {
       return socket.emit('error:msg', { text: 'Easy, Speedster — you are transmitting too fast.' });
     }
     const msg = { id: uid(), from: username, hero, text: body, ts: Date.now(), reactions: {} };
-    pushHistory(roomHistory, roomId, msg);
+    store.pushRoom(roomId, msg);
     io.to('room:' + roomId).emit('room:message', { roomId, message: msg });
   });
 
@@ -253,35 +264,36 @@ io.on('connection', socket => {
     if (!clean) return;
     const id = clean.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     if (!id) return socket.emit('error:msg', { text: 'Invalid channel name.' });
-    if (rooms.has(id)) return socket.emit('error:msg', { text: 'A channel with that name already exists.' });
-    rooms.set(id, { id, name: clean, desc: `Opened by ${username}` });
-    io.emit('rooms', { rooms: roomList() });
+    if (store.hasRoom(id)) return socket.emit('error:msg', { text: 'A channel with that name already exists.' });
+    store.addRoom({ id, name: clean, desc: `Opened by ${username}` });
+    io.emit('rooms', { rooms: store.rooms() });
     socket.emit('room:created', { roomId: id });
   });
 
   socket.on('room:typing', ({ roomId, typing } = {}) => {
-    if (!rooms.has(roomId)) return;
+    if (!store.hasRoom(roomId)) return;
     socket.to('room:' + roomId).emit('room:typing', { roomId, username, typing: !!typing });
   });
 
   socket.on('room:react', ({ roomId, msgId, emoji } = {}) => {
     if (!REACTIONS.includes(emoji)) return;
-    const list = roomHistory.get(roomId) || [];
-    const msg = list.find(m => m.id === msgId);
+    const msg = store.findRoomMessage(roomId, msgId);
     if (!msg || msg.system) return;
     msg.reactions = msg.reactions || {};
     const users = (msg.reactions[emoji] = msg.reactions[emoji] || []);
     const i = users.indexOf(username);
     if (i >= 0) users.splice(i, 1); else users.push(username);
     if (!users.length) delete msg.reactions[emoji];
+    store.touch();
     io.to('room:' + roomId).emit('room:reaction', { roomId, msgId, reactions: msg.reactions });
   });
 
   socket.on('room:delete', ({ roomId, msgId } = {}) => {
-    const msg = (roomHistory.get(roomId) || []).find(m => m.id === msgId);
+    const msg = store.findRoomMessage(roomId, msgId);
     if (!msg || msg.system || msg.from !== username) return;
     msg.deleted = true;
     msg.text = '';
+    store.touch();
     io.to('room:' + roomId).emit('room:delete', { roomId, msgId });
   });
 
@@ -289,7 +301,11 @@ io.on('connection', socket => {
   socket.on('dm:open', ({ with: target } = {}) => {
     const key = pairKey(username, target);
     socket.join('dm:' + key);
-    socket.emit('dm:history', { with: target, messages: dmHistory.get(key) || [] });
+    socket.emit('dm:history', {
+      with: target,
+      messages: store.dmMessages(key),
+      historyDays: store.HISTORY_DAYS
+    });
   });
 
   socket.on('dm:message', ({ to, text } = {}) => {
@@ -302,7 +318,7 @@ io.on('connection', socket => {
     const key = pairKey(username, to);
     for (const sid of target.sockets) io.sockets.sockets.get(sid)?.join('dm:' + key);
     const msg = { id: uid(), from: username, hero, to, text: body, ts: Date.now(), reactions: {} };
-    pushHistory(dmHistory, key, msg);
+    store.pushDm(key, msg);
     io.to('dm:' + key).emit('dm:message', { message: msg });
   });
 
@@ -314,23 +330,24 @@ io.on('connection', socket => {
   socket.on('dm:react', ({ with: target, msgId, emoji } = {}) => {
     if (!REACTIONS.includes(emoji)) return;
     const key = pairKey(username, target);
-    const list = dmHistory.get(key) || [];
-    const msg = list.find(m => m.id === msgId);
+    const msg = store.findDmMessage(key, msgId);
     if (!msg || msg.system) return;
     msg.reactions = msg.reactions || {};
     const users = (msg.reactions[emoji] = msg.reactions[emoji] || []);
     const i = users.indexOf(username);
     if (i >= 0) users.splice(i, 1); else users.push(username);
     if (!users.length) delete msg.reactions[emoji];
+    store.touch();
     io.to('dm:' + key).emit('dm:reaction', { pair: key.split('\u0000'), msgId, reactions: msg.reactions });
   });
 
   socket.on('dm:delete', ({ with: target, msgId } = {}) => {
     const key = pairKey(username, target);
-    const msg = (dmHistory.get(key) || []).find(m => m.id === msgId);
+    const msg = store.findDmMessage(key, msgId);
     if (!msg || msg.from !== username) return;
     msg.deleted = true;
     msg.text = '';
+    store.touch();
     io.to('dm:' + key).emit('dm:delete', { pair: key.split('\u0000'), msgId });
   });
 
@@ -341,4 +358,19 @@ io.on('connection', socket => {
 server.listen(PORT, () => {
   console.log(`⚡ Justice League Chat online — http://localhost:${PORT}`);
   console.log(`   SITE_PASSWORD: ${process.env.SITE_PASSWORD ? '(custom)' : 'watchtower (default)'}`);
+  console.log(`   history: last ${store.HISTORY_DAYS} day(s), ${store.total()} message(s) in store`);
 });
+
+/* flush history and close cleanly (Render sends SIGTERM on redeploy) */
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[server] ${signal} — saving history and shutting down…`);
+  try { store.saveNow(); } catch (e) { /* ignore */ }
+  io.close();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 3000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
